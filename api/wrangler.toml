@@ -1,0 +1,15 @@
+name = "revclaw-api"
+main = "src/index.ts"
+compatibility_date = "2025-12-01"
+compatibility_flags = ["nodejs_compat"]
+
+[[d1_databases]]
+binding = "DB"
+database_name = "revclaw"
+database_id = "3b091f06-31c3-48a1-9413-d354df43ee26"
+migrations_dir = "migrations"
+
+# R2 for photo storage (v1.1 — enable R2 in CF dashboard first)
+# [[r2_buckets]]
+# binding = "MEDIA"
+# bucket_name = "revclaw-media"
