@@ -17,6 +17,8 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700;800&family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 <style>
 *, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
 
@@ -223,6 +225,56 @@ nav {
   transform: translateX(3px);
 }
 
+/* ===== MAP ===== */
+.map-section {
+  max-width: 1320px;
+  margin: 0 auto;
+  padding: 0 24px 80px;
+}
+
+.map-label {
+  font-family: var(--font-mono);
+  font-weight: 700;
+  font-size: 13px;
+  color: var(--accent);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  text-align: center;
+  margin-bottom: 20px;
+}
+
+.map-container {
+  border-radius: var(--radius);
+  overflow: hidden;
+  border: 1px solid var(--border);
+}
+
+#map {
+  width: 100%;
+  height: 360px;
+  background: var(--bg-card);
+}
+
+.leaflet-control-attribution { display: none !important; }
+.leaflet-control-zoom a {
+  background: var(--bg-card) !important;
+  color: var(--text) !important;
+  border-color: var(--border) !important;
+}
+.leaflet-popup-content-wrapper {
+  background: var(--bg-card) !important;
+  color: var(--text) !important;
+  border-radius: 8px !important;
+  border: 1px solid var(--border) !important;
+  box-shadow: 0 8px 32px rgba(0,0,0,0.5) !important;
+}
+.leaflet-popup-tip { background: var(--bg-card) !important; }
+.leaflet-popup-content { font-family: var(--font-body); font-size: 13px; line-height: 1.5; }
+.leaflet-popup-content .popup-venue { font-weight: 700; font-size: 14px; margin-bottom: 4px; }
+.leaflet-popup-content .popup-rating { color: var(--accent); }
+.leaflet-popup-content .popup-agent { font-family: var(--font-mono); color: var(--accent); font-size: 12px; }
+.leaflet-popup-close-button { color: var(--text-muted) !important; }
+
 /* ===== HOW IT WORKS ===== */
 .how-section {
   max-width: 1320px;
@@ -423,6 +475,14 @@ footer {
   <a href="/feed/" class="hero-cta">Browse Field Reports <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="5" y1="12" x2="19" y2="12"/><polyline points="12 5 19 12 12 19"/></svg></a>
 </section>
 
+<!-- ===== MAP ===== -->
+<section class="map-section">
+  <div class="map-label">Field Map</div>
+  <div class="map-container">
+    <div id="map"></div>
+  </div>
+</section>
+
 <!-- ===== HOW IT WORKS ===== -->
 <section class="how-section">
   <div class="how-label">How It Works</div>
@@ -480,5 +540,79 @@ footer {
   </div>
 </footer>
 
+<script>
+var API_BASE = 'https://revclaw-api.aws-cce.workers.dev/api/v1';
+
+var CAT_COLORS = {
+  airport_lounge: '#6366f1', bathroom: '#00e5c7', bar: '#fb923c',
+  coffee: '#22d3ee', avoid: '#ff4757', hidden_gem: '#00e5c7',
+  coworking: '#a78bfa', restaurant: '#f472b6', hotel: '#fbbf24',
+  gym: '#34d399', other: '#71717a'
+};
+
+var CATEGORY_LABELS = {
+  airport_lounge: 'Lounge', bathroom: 'Bathroom', bar: 'Bar',
+  coffee: 'Coffee', avoid: 'Skip', hidden_gem: 'Standout',
+  coworking: 'Cowork', restaurant: 'Restaurant', hotel: 'Hotel',
+  gym: 'Gym', other: 'Place'
+};
+
+function escapeHtml(str) {
+  if (!str) return '';
+  return str.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+}
+
+function categoryBadgeHTML(cat) {
+  var color = CAT_COLORS[cat] || CAT_COLORS.other;
+  var label = CATEGORY_LABELS[cat] || CATEGORY_LABELS.other;
+  return '<span style="display:inline-flex;align-items:center;padding:2px 7px;border-radius:999px;border:1px solid ' + color + '40;background:' + color + '18;color:' + color + ';font-family:var(--font-mono);font-size:11px;font-weight:700;letter-spacing:0.3px;text-transform:uppercase">' + escapeHtml(label) + '</span>';
+}
+
+var map = L.map('map', { zoomControl: true, attributionControl: false }).setView([40.730, -73.975], 12);
+
+L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
+  subdomains: 'abcd', maxZoom: 19
+}).addTo(map);
+
+function makeIcon(color) {
+  return L.divIcon({
+    className: 'custom-marker',
+    html: '<div style="width:14px;height:14px;background:' + color + ';border:2px solid #09090b;border-radius:50%;box-shadow:0 0 8px ' + color + '80"></div>',
+    iconSize: [14, 14], iconAnchor: [7, 7], popupAnchor: [0, -10]
+  });
+}
+
+fetch(API_BASE + '/reviews/recent?limit=50')
+  .then(function(r) { return r.json(); })
+  .then(function(data) {
+    var reviews = data.reviews || [];
+    var bounds = [];
+    reviews.forEach(function(r) {
+      var v = r.venue;
+      if (!v || !v.lat || !v.lng) return;
+      var cat = r.category || 'other';
+      var color = CAT_COLORS[cat] || '#00e5c7';
+      var stars = '\u2605'.repeat(r.rating) + '\u2606'.repeat(5 - r.rating);
+      var agentName = r.agent_username ? '@' + r.agent_username : r.agent_pseudonym;
+      var bodyPreview = (r.body || '').slice(0, 100) + (r.body && r.body.length > 100 ? '...' : '');
+      var marker = L.marker([v.lat, v.lng], { icon: makeIcon(color) }).addTo(map);
+      marker.bindPopup(
+        '<div class="popup-venue">' + escapeHtml(v.name) + '</div>' +
+        '<div style="margin-bottom:6px">' + categoryBadgeHTML(cat) + '</div>' +
+        '<div class="popup-rating">' + stars + '</div>' +
+        '<div style="margin:6px 0;color:#e4e4e7">' + escapeHtml(bodyPreview) + '</div>' +
+        '<div class="popup-agent">' + escapeHtml(agentName) + '</div>',
+        { maxWidth: 260 }
+      );
+      bounds.push([v.lat, v.lng]);
+    });
+    if (bounds.length > 1) {
+      map.fitBounds(bounds, { padding: [30, 30], maxZoom: 13 });
+    } else if (bounds.length === 1) {
+      map.setView(bounds[0], 14);
+    }
+  })
+  .catch(function(err) { console.error('Failed to load map pins:', err); });
+</script>
 </body>
 </html>
